@@ -1,0 +1,122 @@
+- name: Test network connectivity
+  hosts: docker_registry_kc_lab
+  tasks:
+    - name: Ping the hosts
+      ansible.builtin.ping:
+
+    - name: Ping network connectivity
+      ansible.builtin.command: ping -c4 9.9.9.9
+      ignore_errors: yes
+
+    - name: Test DNS connectivity
+      ansible.builtin.command: host google.com
+      ignore_errors: yes
+      
+
+- name: Configure resolv.conf file
+  hosts: docker_registry_kc_lab
+  become: yes
+  become_method: sudo
+  tasks:
+    - name: Ensure systemd-resolved is enabled and running
+      ansible.builtin.systemd:
+          name: systemd-resolved
+          enabled: yes
+          state: started
+
+    - name: Configure systemd-resolved DNS servers
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/resolved.conf
+        regexp: '^#?DNS='
+        line: 'DNS=1.1.1.1 8.8.8.8 9.9.9.9'
+        create: yes
+
+    - name: Restart systemd-resolved
+      ansible.builtin.systemd:
+        name: systemd-resolved
+        state: restarted
+
+    - name: Create symlink for /etc/resolv.conf
+      ansible.builtin.file:
+        src: /run/systemd/resolve/resolv.conf
+        dest: /etc/resolv.conf
+        state: link
+        force: yes
+      
+
+- name: Update the host
+  hosts: docker_registry_kc_lab
+  become: yes
+  become_method: sudo
+  tasks:
+    - name: Update the hosts
+      ansible.builtin.apt:
+        update_cache: yes
+
+    - name: Upgrade the hosts
+      ansible.builtin.apt:
+        upgrade: dist
+
+    - name: Autoremove
+      ansible.builtin.apt:
+        autoremove: yes
+
+- name: install docker
+  hosts: docker_registry_kc_lab
+  become: yes
+  become_method: sudo 
+  tasks:
+    - name: Install aptitude
+      ansible.builtin.apt:
+        name:
+          - aptitude
+        state: latest
+        update_cache: yes
+
+    - name: Install pre requisite
+      ansible.builtin.apt:
+        pkg:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - python3-pip
+          - virtualenv
+          - python3-setuptools
+        state: latest
+        update_cache: yes
+        
+    - name: Add GPG key
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add docker repository
+      ansible.builtin.apt_repository:
+        repo: deb https://download.docker.com/linux/ubuntu focal stable
+        state: present
+
+    - name: Install docker packages
+      ansible.builtin.apt:
+        pkg:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: latest
+        update_cache: yes
+
+    - name: Add user to docker group
+      ansible.builtin.user:
+        user: ubuntu
+        group: docker
+        append: yes
+    
+    - name: Reset SSH connection to login as part of Docker group
+      ansible.builtin.meta: reset_connection 
+
+    - name: Run hello-world image
+      ansible.builtin.command: docker run hello-world
+    
+
